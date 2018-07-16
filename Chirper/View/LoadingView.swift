@@ -20,14 +20,9 @@ class LoadingView: BaseView {
         return iv
     }()
     
-    var isAnimating = false {
-        didSet {
-            isAnimating ? indicator.startAnimating() : indicator.stopAnimating()
-        }
-    }
-    
     override func setupViews() {
         addSubview(indicator)
+        indicator.startAnimating()
         indicator.anchorCenterSuperview()
         indicator.widthAnchor.constraint(equalToConstant: indicatorSize).isActive = true
         indicator.heightAnchor.constraint(equalToConstant: indicatorSize).isActive = true

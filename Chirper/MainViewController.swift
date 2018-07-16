@@ -8,6 +8,20 @@
 
 import UIKit
 
+enum State {
+    case loading
+    case populated([Recording])
+    case empty
+    case error(Error)
+    
+    var currentRecordings: [Recording] {
+        switch self {
+        case .populated(let recordings):  return recordings
+        default:                    return []
+        }
+    }
+}
+
 class MainViewController: UIViewController {
 
     let emptyView: ResultView = {
@@ -26,6 +40,24 @@ class MainViewController: UIViewController {
         let ev = ErrorView(frame: .zero)
         return ev
     }()
+    
+    var state = State.loading {
+        didSet {
+            switch state {
+            case .loading:
+                tableView.tableFooterView = loadingView
+            case .error(let e):
+                errorView.errorMessage = e.localizedDescription
+                tableView.tableFooterView = errorView
+            case .empty:
+                tableView.tableFooterView = emptyView
+            case .populated:
+                tableView.tableFooterView = nil
+            }
+            tableView.reloadData()
+        }
+        
+    }
     
     lazy var tableView: BaseTableView = {
         let tv = BaseTableView()
@@ -47,13 +79,8 @@ class MainViewController: UIViewController {
     
     let networkingServie = NetworkingService()
     var recordings: [Recording]?
-    var error: Error?
     
-    var isLoading = false {
-        didSet {
-            loadingView.isAnimating = isLoading
-        }
-    }
+    var error: Error?
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -74,8 +101,9 @@ class MainViewController: UIViewController {
 
 @objc extension MainViewController {
     func loadRecordings() {
-        isLoading = true
-        tableView.tableFooterView = loadingView
+        state = .loading
+//        isLoading = true
+//        tableView.tableFooterView = loadingView
         recordings = []
         tableView.reloadData()
         
@@ -84,7 +112,7 @@ class MainViewController: UIViewController {
             guard let `self` = self else { return }
             
             self.searchController.searchBar.endEditing(true)
-            self.isLoading = false
+//            self.isLoading = false
             self.update(response: resp)
         }
     }
@@ -113,19 +141,14 @@ fileprivate extension MainViewController {
     
     
     func update(response: RecordingsResult) {
-        if let recordings = response.recordings, !recordings.isEmpty {
-            tableView.tableFooterView = nil
-        } else if let error = response.error {
-            errorView.errorMessage = error.localizedDescription
-            tableView.tableFooterView = errorView
-            tableView.reloadData()
-        } else {
-            tableView.tableFooterView = emptyView
+        if let rcd = response.recordings {
+            if let error = response.error {
+                state = .error(error)
+                tableView.reloadData()
+                return
+            }
+            state = .populated(rcd)
         }
-        
-        recordings = response.recordings
-        error = response.error
-        tableView.reloadData()
     }
 }
 
@@ -153,15 +176,13 @@ extension MainViewController: UITableViewDelegate {
 
 extension MainViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return recordings?.count ?? 0
+        return state.currentRecordings.count
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(withIdentifier: BirdSoundTableViewCell.identifier, for: indexPath) as? BirdSoundTableViewCell else { return UITableViewCell() }
         
-        if let recordings = recordings {
-            cell.load(recording: recordings[indexPath.row])
-        }
+        cell.load(recording: state.currentRecordings[indexPath.row])
         return cell
     }
 }

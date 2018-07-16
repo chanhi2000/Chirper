@@ -10,6 +10,7 @@ import UIKit
 
 enum State {
     case loading
+    case paging([Recording], next: Int)
     case populated([Recording])
     case empty
     case error(Error)
@@ -17,6 +18,7 @@ enum State {
     var currentRecordings: [Recording] {
         switch self {
         case .populated(let recordings):  return recordings
+        case .paging(let recordings, next: _): return recordings
         default:                    return []
         }
     }
@@ -44,7 +46,7 @@ class MainViewController: UIViewController {
     var state = State.loading {
         didSet {
             switch state {
-            case .loading:
+            case .loading, .paging:
                 tableView.tableFooterView = loadingView
             case .error(let e):
                 errorView.errorMessage = e.localizedDescription
@@ -102,19 +104,7 @@ class MainViewController: UIViewController {
 @objc extension MainViewController {
     func loadRecordings() {
         state = .loading
-//        isLoading = true
-//        tableView.tableFooterView = loadingView
-        recordings = []
-        tableView.reloadData()
-        
-        let query = searchController.searchBar.text
-        networkingServie.fetchRecordings(matching: query, page: 1) { [weak self] (resp) in
-            guard let `self` = self else { return }
-            
-            self.searchController.searchBar.endEditing(true)
-//            self.isLoading = false
-            self.update(response: resp)
-        }
+        loadPage(1)
     }
 }
 
@@ -139,15 +129,33 @@ fileprivate extension MainViewController {
         tableView.register(BirdSoundTableViewCell.self, forCellReuseIdentifier: BirdSoundTableViewCell.identifier)
     }
     
-    
     func update(response: RecordingsResult) {
-        if let rcd = response.recordings {
-            if let error = response.error {
-                state = .error(error)
-                tableView.reloadData()
-                return
-            }
-            state = .populated(rcd)
+        guard let newRecordings = response.recordings,
+            !newRecordings.isEmpty else {
+            state = .empty
+            return
+        }
+        if let error = response.error {
+            state = .error(error)
+            return
+        }
+        
+        var allRecordings = state.currentRecordings
+        allRecordings.append(contentsOf: newRecordings)
+        if response.hasMorePages {
+            state = .paging(allRecordings, next: response.nextPage)
+        } else {
+            state = .populated(allRecordings)
+        }
+    }
+    
+    func loadPage(_ page: Int) {
+        let query = searchController.searchBar.text
+        networkingServie.fetchRecordings(matching: query, page: page) { [weak self] (resp) in
+            guard let `self` = self else { return }
+            
+            self.searchController.searchBar.endEditing(true)
+            self.update(response: resp)
         }
     }
 }
@@ -181,6 +189,11 @@ extension MainViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(withIdentifier: BirdSoundTableViewCell.identifier, for: indexPath) as? BirdSoundTableViewCell else { return UITableViewCell() }
+        
+        if case .paging(_, let nextPage) = state, indexPath.row == state.currentRecordings.count - 1 {
+            loadPage(nextPage)
+        }
+        
         
         cell.load(recording: state.currentRecordings[indexPath.row])
         return cell
